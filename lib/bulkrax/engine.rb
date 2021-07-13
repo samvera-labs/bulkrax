@@ -30,9 +30,7 @@ module Bulkrax
       ActionController::Base.view_paths = paths
 
       # Sidebar for hyrax 3+ support
-      if Hyrax::DashboardController && Hyrax::DashboardController.respond_to?(:sidebar_partials)
-        Hyrax::DashboardController.sidebar_partials[:repository_content] << "hyrax/dashboard/sidebar/bulkrax_sidebar_additions"
-      end
+      ::Hyrax::DashboardController.sidebar_partials[:repository_content] << "hyrax/dashboard/sidebar/bulkrax_sidebar_additions" if ::Hyrax::DashboardController&.respond_to?(:sidebar_partials)
     end
   end
 end
