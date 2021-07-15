@@ -30,9 +30,9 @@ module Bulkrax
         path = File.join(exporter_export_path, 'files')
         FileUtils.mkdir_p(path)
         file = filename(fs)
+        next if file.blank?
         require 'open-uri'
         io = open(fs.original_file.uri)
-        next if file.blank?
         File.open(File.join(path, file), 'wb') do |f|
           f.write(io.read)
           f.close
