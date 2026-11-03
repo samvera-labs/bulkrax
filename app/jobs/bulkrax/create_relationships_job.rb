@@ -273,6 +273,8 @@ module Bulkrax
     # The run's row stays locked through the importer status, as it does in the
     # import jobs, so jobs finishing together count and record in turn.
     def record_relationship_failures
+      return unless @importer_run_id
+
       ImporterRun.transaction do
         failed = ImporterRun.lock.find(@importer_run_id).pending_relationships.where.not(status_message: 'Pending').count
         # rubocop:disable Rails/SkipsModelValidations
@@ -287,7 +289,7 @@ module Bulkrax
     # is read under the run's lock, so a run of this job that is recording a
     # failure finishes first.
     def recount_if_failures_counted
-      return unless @number_of_successes.positive?
+      return unless @importer_run_id && @number_of_successes.positive?
 
       ImporterRun.transaction do
         record_relationship_failures if ImporterRun.lock.find(@importer_run_id).failed_relationships.to_i.positive?

@@ -419,6 +419,18 @@ module Bulkrax
         it_behaves_like 'a failed relationship that links later'
       end
 
+      context 'when called without an importer run' do
+        subject(:perform) do
+          create_relationships_job.perform(parent_identifier: 'missing-parent', failure_count: described_class.max_failure_count - 1)
+        end
+
+        before { allow(create_relationships_job).to receive(:find_record).with('missing-parent', nil).and_return([nil, nil]) }
+
+        it 'returns the error on the last attempt instead of raising' do
+          expect(perform).to match([a_string_including('missing-parent')])
+        end
+      end
+
       context 'when a parent never resolves and the last attempt fails' do
         subject(:perform) do
           create_relationships_job.perform(
