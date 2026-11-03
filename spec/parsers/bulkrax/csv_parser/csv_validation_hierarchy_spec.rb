@@ -304,6 +304,63 @@ RSpec.describe Bulkrax::CsvParser::CsvValidationHierarchy do
       expect(works.map { |w| w[:parentIds] }.flatten).to include('col1')
     end
 
+    context 'when rows have blank source identifiers' do
+      let(:data) do
+        [
+          make_item(source_identifier: nil, children: 'repo_child_a', raw_row: { 'title' => 'Work A' }),
+          make_item(source_identifier: '', children: 'repo_child_b', raw_row: { 'title' => 'Work B' })
+        ]
+      end
+      let(:find_record) { ->(id) { id.to_s.start_with?('repo_child') } }
+
+      it 'gives each row a distinct id named after its CSV row' do
+        _, works, = host.extract_validation_items(data, Set.new, find_record)
+        expect(works.map { |w| w[:id] }).to eq(%w[row-2 row-3])
+      end
+
+      it 'keeps each row\'s existing children on that row' do
+        _, works, = host.extract_validation_items(data, Set.new, find_record)
+        expect(works.map { |w| w[:existingChildIds] }).to eq([['repo_child_a'], ['repo_child_b']])
+      end
+
+      it 'does not take parents from a row that names a child with the same id' do
+        rows = data + [make_item(source_identifier: 'col1', model: 'Collection', children: 'row-2')]
+        _, works, = host.extract_validation_items(rows, Set.new(%w[col1]), find_record, child_split_pattern: '\|')
+        expect(works.first[:parentIds]).to be_empty
+      end
+
+      it 'picks a row id that no CSV row uses as its identifier' do
+        rows = data + [make_item(source_identifier: 'row-2', raw_row: { 'title' => 'Named row-2' })]
+        _, works, = host.extract_validation_items(rows, Set.new(%w[row-2]), find_record)
+        expect(works.map { |w| w[:id] }).to contain_exactly('row-2-1', 'row-3', 'row-2')
+      end
+
+      it 'picks a row id that no child relationship names, so a row cannot become its own parent' do
+        rows = [make_item(source_identifier: nil, children: 'row-2', raw_row: { 'title' => 'Work A' })]
+        _, works, = host.extract_validation_items(rows, Set.new, ->(id) { id == 'row-2' })
+        expect(works.first[:id]).not_to eq('row-2')
+        expect(works.first[:existingChildIds]).to eq(['row-2'])
+      end
+
+      it 'picks a row id that no parent relationship names, so a row cannot become its own parent' do
+        rows = [make_item(source_identifier: nil, parent: 'row-2', raw_row: { 'title' => 'Work A' })]
+        _, works, = host.extract_validation_items(rows, Set.new, ->(id) { id == 'row-2' })
+        expect(works.first[:id]).not_to eq('row-2')
+        expect(works.first[:existingParentIds]).to eq(['row-2'])
+      end
+
+      it 'does not look up the row ids in the repository' do
+        looked_up = []
+        recording_find_record = lambda do |id|
+          looked_up << id
+          find_record.call(id)
+        end
+        _, works, = host.extract_validation_items(data, Set.new, recording_find_record)
+        expect(looked_up).not_to include('row-2', 'row-3')
+        expect(works.map { |w| w[:existing] }).to eq([false, false])
+      end
+    end
+
     it 'correctly categorises a work with suffix-column parents' do
       data = [
         make_item(source_identifier: 'col1', model: 'Collection',
