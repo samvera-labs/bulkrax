@@ -420,6 +420,7 @@ zh:
       unzip:
         errors:
           multiple_csv: ZIP 文件中的同一最浅层级下发现了多个 CSV 文件，无法确定主 CSV。请在该层级仅保留一个 CSV，其他 CSV 必须位于更深的目录中。
+          name_collision: "ZIP 中有些名称仅在空格与下划线上有所不同（%{names}）。导入时会将这些空格替换为下划线，因此这些名称会发生冲突。请重命名，使它们有更多区别，然后重新上传 ZIP。"
           no_csv: ZIP 文件中未找到 CSV 文件
           unsafe_entry: "ZIP 文件包含路径不安全的条目（%{name}）。条目不得使用绝对路径或父目录引用。"
       validations:

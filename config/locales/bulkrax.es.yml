@@ -420,6 +420,7 @@ es:
       unzip:
         errors:
           multiple_csv: Hay varios archivos CSV en el nivel menos profundo del ZIP, por lo que no se puede determinar el CSV principal. Mantén exactamente un CSV en ese nivel; cualquier CSV adicional debe estar anidado más profundamente.
+          name_collision: "Algunos nombres del ZIP solo se diferencian por espacios frente a guiones bajos (%{names}). La importación reemplaza esos espacios por guiones bajos, por lo que los nombres entrarían en conflicto. Cámbialos para que se diferencien en algo más y vuelve a subir el ZIP."
           no_csv: No se encontraron archivos CSV en ZIP
           unsafe_entry: "El ZIP contiene una entrada con una ruta no segura (%{name}). Las entradas no deben usar rutas absolutas ni referencias al directorio padre."
       validations:

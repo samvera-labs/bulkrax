@@ -420,6 +420,7 @@ pt-BR:
       unzip:
         errors:
           multiple_csv: Vários arquivos CSV estão no nível menos profundo dentro do ZIP, então não é possível determinar qual é o CSV principal. Mantenha exatamente um CSV nesse nível; CSVs adicionais devem estar aninhados em níveis mais profundos.
+          name_collision: "Alguns nomes no ZIP diferem apenas por espaços ou sublinhados (%{names}). A importação substitui esses espaços por sublinhados, então os nomes entrariam em conflito. Renomeie-os para que se diferenciem em algo mais e envie o ZIP novamente."
           no_csv: Nenhum arquivo CSV encontrado no arquivo ZIP.
           unsafe_entry: "O ZIP contém uma entrada com caminho inseguro (%{name}). As entradas não devem usar caminhos absolutos nem referências ao diretório pai."
       validations:
