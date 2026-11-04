@@ -386,7 +386,7 @@ module Bulkrax
 
       self.class.file_reference_candidates(filename)
           .map { |candidate| File.join(base_dir, candidate) }
-          .find { |candidate| File.exist?(candidate) }
+          .find { |candidate| File.file?(candidate) }
     end
 
     # The names a file reference may have under `files/` after extraction,
@@ -481,7 +481,7 @@ module Bulkrax
     def existing_file_path(files_dir, reference)
       file = self.class.file_reference_candidates(reference)
                  .map { |candidate| File.join(files_dir, candidate) }
-                 .find { |candidate| File.exist?(candidate) }
+                 .find { |candidate| File.file?(candidate) }
       raise "File #{File.join(files_dir, reference)} does not exist" if file.nil?
 
       file
