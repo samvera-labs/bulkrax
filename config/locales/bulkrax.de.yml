@@ -420,6 +420,7 @@ de:
       unzip:
         errors:
           multiple_csv: Mehrere CSV-Dateien befinden sich auf der obersten Ebene des ZIP-Archivs, sodass die primäre CSV nicht bestimmt werden kann. Belassen Sie genau eine CSV auf dieser Ebene; weitere CSVs müssen tiefer verschachtelt sein.
+          name_collision: "Einige Namen im ZIP unterscheiden sich nur durch Leerzeichen bzw. Unterstriche (%{names}). Beim Import werden diese Leerzeichen durch Unterstriche ersetzt, sodass die Namen kollidieren würden. Benennen Sie sie so um, dass sie sich stärker unterscheiden, und laden Sie das ZIP erneut hoch."
           no_csv: Es wurden keine CSV-Dateien im ZIP-Archiv gefunden.
           unsafe_entry: "Das ZIP enthält einen Eintrag mit unsicherem Pfad (%{name}). Einträge dürfen weder absolute Pfade noch Referenzen auf übergeordnete Verzeichnisse verwenden."
       validations:
