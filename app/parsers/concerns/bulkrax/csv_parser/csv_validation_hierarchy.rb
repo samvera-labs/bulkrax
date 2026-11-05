@@ -6,7 +6,7 @@ module Bulkrax
     # categorising items from parsed CSV data for the guided import tree view.
     module CsvValidationHierarchy
       def extract_validation_items(csv_data, all_ids = Set.new, find_record = nil, parent_split_pattern: nil, child_split_pattern: nil, # rubocop:disable Metrics/ParameterLists
-                                   parent_columns: ['parents'], children_columns: ['children'])
+                                   parent_columns: ['parents'], children_columns: ['children'], find_existing_record: nil)
         child_to_parents = build_child_to_parents_map(csv_data, child_split_pattern: child_split_pattern, children_columns: children_columns)
         collections = []
         works       = []
@@ -18,7 +18,8 @@ module Bulkrax
           categorise_validation_item(item, child_to_parents, all_ids, collections, works, file_sets, find_record,
                                      row_id: display_id(item, index + 2, taken_ids),
                                      parent_split_pattern: parent_split_pattern, child_split_pattern: child_split_pattern,
-                                     parent_columns: parent_columns, children_columns: children_columns)
+                                     parent_columns: parent_columns, children_columns: children_columns,
+                                     find_existing_record: find_existing_record)
         end
 
         [collections, works, file_sets]
@@ -37,12 +38,12 @@ module Bulkrax
       end
 
       def categorise_validation_item(item, child_to_parents, all_ids, collections, works, file_sets, find_record = nil, parent_split_pattern: nil, child_split_pattern: nil, # rubocop:disable Metrics/ParameterLists
-                                     parent_columns: ['parents'], children_columns: ['children'], row_id: nil)
+                                     parent_columns: ['parents'], children_columns: ['children'], row_id: nil, find_existing_record: nil)
         item_id   = row_id || item[:source_identifier]
         model_str = item[:model].to_s
 
-        opts = { type: nil, find_record: find_record, parent: parent_split_pattern, child: child_split_pattern,
-                 parent_columns: parent_columns, children_columns: children_columns, id: item_id }
+        opts = { type: nil, find_record: find_record, find_existing_record: find_existing_record, parent: parent_split_pattern,
+                 child: child_split_pattern, parent_columns: parent_columns, children_columns: children_columns, id: item_id }
         if Bulkrax.collection_model_name?(model_str)
           collections << build_item_hash(item, child_to_parents, all_ids, opts.merge(type: 'collection'))
         elsif Bulkrax.file_model_name?(model_str)
@@ -64,12 +65,17 @@ module Bulkrax
           id: item_id,
           title: title,
           type: type,
-          existing: find_record&.call(item[:source_identifier]) || false,
+          existing: existing_record?(item, opts[:find_existing_record]),
           parentIds: (resolvable_ids(parents, all_ids) + resolvable_ids(child_to_parents.fetch(item[:source_identifier], []), all_ids)).uniq,
           childIds: resolvable_ids(children, all_ids),
           existingParentIds: external_ids(parents, all_ids, find_record),
           existingChildIds: external_ids(children, all_ids, find_record)
         }
+      end
+
+      def existing_record?(item, find_existing_record)
+        match = find_existing_record&.call(item)
+        match.present? && !match[:missing] && !match[:existing_model]
       end
 
       # The tree needs a unique id for every row; blank ones arrive in the browser

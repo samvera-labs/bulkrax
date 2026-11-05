@@ -183,24 +183,30 @@ RSpec.describe Bulkrax::CsvParser::CsvValidationHierarchy do
     end
 
     context 'existing flag' do
-      it 'sets existing to true when find_record returns true for the item' do
-        find_record = ->(id) { id == 'work1' }
-        item = make_item(source_identifier: 'work1', raw_row: { 'title' => 'Work One' })
-        hash = host.build_item_hash(item, {}, all_ids, type: 'work', find_record: find_record)
-        expect(hash[:existing]).to be true
+      let(:item) { make_item(source_identifier: 'work1', raw_row: { 'title' => 'Work One' }) }
+
+      def existing_for(match)
+        host.build_item_hash(item, {}, all_ids, type: 'work', find_existing_record: ->(_row) { match })[:existing]
       end
 
-      it 'sets existing to false when find_record returns false for the item' do
-        find_record = ->(_id) { false }
-        item = make_item(source_identifier: 'work1', raw_row: { 'title' => 'Work One' })
-        hash = host.build_item_hash(item, {}, all_ids, type: 'work', find_record: find_record)
-        expect(hash[:existing]).to be false
+      it 'is true when the import would update an existing record' do
+        expect(existing_for(field: nil, value: 'work1')).to be true
       end
 
-      it 'sets existing to false when find_record is nil' do
-        item = make_item(source_identifier: 'work1', raw_row: { 'title' => 'Work One' })
-        hash = host.build_item_hash(item, {}, all_ids, type: 'work')
-        expect(hash[:existing]).to be false
+      it 'is false when the import would create a record' do
+        expect(existing_for(nil)).to be false
+      end
+
+      it 'is false when the existing record is of another model' do
+        expect(existing_for(field: nil, value: 'work1', existing_model: 'Etd', model: 'GenericWork')).to be false
+      end
+
+      it 'is false when the id names no record' do
+        expect(existing_for(field: 'id', value: 'rec-1', missing: true)).to be false
+      end
+
+      it 'is false when no lookup is provided' do
+        expect(host.build_item_hash(item, {}, all_ids, type: 'work')[:existing]).to be false
       end
     end
   end
