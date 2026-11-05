@@ -262,7 +262,8 @@ module Bulkrax
         Bulkrax::CsvRow::CircularReference,
         Bulkrax::CsvRow::RequiredValues,
         Bulkrax::CsvRow::ControlledVocabulary,
-        Bulkrax::CsvRow::FileReference
+        Bulkrax::CsvRow::FileReference,
+        Bulkrax::CsvRow::DeleteRecord
       ]
     end
 
