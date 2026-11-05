@@ -167,6 +167,27 @@ module Bulkrax
       raise ObjectFactoryInterface::ObjectNotFoundError, e.message
     end
 
+    # Neither lookup is limited to the row's model, so a record of another
+    # model is reported rather than updated as if it were the row's.
+    def self.record_of_row_model(record, klass:, identifier:)
+      return record if record.nil? || record_of_model?(record, klass)
+
+      raise ObjectFactoryInterface::ModelMismatchError.new(identifier: identifier, existing_model: record.class, model: klass)
+    end
+
+    def self.record_for_id(id, klass:) # rubocop:disable Lint/UnusedMethodArgument
+      return false if id.blank?
+
+      find(id)
+    end
+
+    def self.record_of_model?(record, klass)
+      config = Bulkrax.config
+      twin = config.file_model_name?(klass.to_s) ? config.file_set_twin_for(klass) : config.curation_concern_twin_for(klass)
+      config.model_names_for(klass, twin: twin).include?(record.class.to_s)
+    end
+    private_class_method :record_of_model?
+
     def self.find_or_create_default_admin_set
       Hyrax::AdminSetCreateService.find_or_create_default_admin_set
     end
@@ -471,12 +492,6 @@ module Bulkrax
             'collection_resource.apply_collection_type_permissions' => { user: @user }
           )
       end
-    end
-
-    def find_by_id
-      return false if attributes[:id].blank?
-
-      self.class.find(attributes[:id])
     end
 
     ##

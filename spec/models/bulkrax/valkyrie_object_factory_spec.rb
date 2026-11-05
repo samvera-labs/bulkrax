@@ -193,10 +193,14 @@ module Bulkrax
         described_class.new(attributes: { id: id },
                             source_identifier_value: 'src-1',
                             work_identifier: :source,
-                            work_identifier_search_field: 'bulkrax_identifier_sim')
+                            work_identifier_search_field: 'bulkrax_identifier_sim',
+                            klass: ImageResource)
       end
 
-      before { allow(factory).to receive(:search_by_identifier).and_return(false) }
+      before do
+        stub_const('ImageResource', Class.new)
+        allow(described_class).to receive(:search_by_property).and_return(nil)
+      end
 
       [nil, ''].each do |blank_id|
         context "when the id is #{blank_id.inspect}" do
@@ -208,8 +212,8 @@ module Bulkrax
           end
 
           it 'finds the record by its source identifier' do
-            record = double('Resource')
-            allow(factory).to receive(:search_by_identifier).and_return(record)
+            record = ImageResource.new
+            allow(described_class).to receive(:search_by_property).and_return(record)
             expect(factory.find).to eq(record)
           end
         end
@@ -217,12 +221,60 @@ module Bulkrax
 
       context 'when the id is present' do
         let(:id) { 'existing-id' }
-        let(:record) { double('Resource') }
+        let(:record) { ImageResource.new }
 
         it 'returns the record with that id' do
           allow(described_class).to receive(:find).with('existing-id').and_return(record)
           expect(factory.find).to eq(record)
         end
+      end
+    end
+
+    describe '#find when the record found is of another model' do
+      let(:id) { nil }
+      let(:factory) do
+        described_class.new(attributes: { id: id },
+                            source_identifier_value: 'src-1',
+                            work_identifier: :source,
+                            work_identifier_search_field: 'bulkrax_identifier_sim',
+                            klass: ImageResource)
+      end
+
+      before do
+        stub_const('ImageResource', Class.new)
+        stub_const('Image', Class.new)
+        stub_const('EtdResource', Class.new)
+      end
+
+      it 'raises instead of updating it' do
+        allow(described_class).to receive(:search_by_property).and_return(EtdResource.new)
+        expect { factory.find }.to raise_error(ObjectFactoryInterface::ModelMismatchError, /src-1.*EtdResource.*ImageResource/)
+      end
+
+      context 'when it was found by id' do
+        let(:id) { 'existing-id' }
+
+        it 'raises naming the id' do
+          allow(described_class).to receive(:find).with('existing-id').and_return(EtdResource.new)
+          expect { factory.find }.to raise_error(ObjectFactoryInterface::ModelMismatchError, /existing-id.*EtdResource/)
+        end
+      end
+
+      it 'checks the record a subclass override of #find_by_id returns' do
+        subclass = Class.new(described_class) do
+          def find_by_id
+            EtdResource.new
+          end
+        end
+        factory = subclass.new(attributes: {}, source_identifier_value: 'src-1', work_identifier: :source,
+                               work_identifier_search_field: 'bulkrax_identifier_sim', klass: ImageResource)
+        expect { factory.find }.to raise_error(ObjectFactoryInterface::ModelMismatchError)
+      end
+
+      it "returns it when it is the row's model under its other name" do
+        record = Image.new
+        allow(described_class).to receive(:search_by_property).and_return(record)
+        expect(factory.find).to eq(record)
       end
     end
 

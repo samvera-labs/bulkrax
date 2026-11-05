@@ -351,6 +351,15 @@ es:
             errors:
               message: "%{field} duplicado '%{value}': también aparece en la fila %{original_row}."
               suggestion: "Cada %{field} debe ser único dentro del CSV."
+          existing_record_id_not_found_validator:
+            errors:
+              message: "Ningún registro existente tiene el %{field} '%{value}', por lo que esta fila no puede actualizar ninguno."
+              suggestion: "Corrija el valor de %{field} o déjelo en blanco para crear un registro nuevo."
+          existing_record_model_mismatch_validator:
+            errors:
+              id_suggestion: "Cambie el modelo de esta fila a %{existing_model} o deje en blanco el valor de %{field} para crear un registro nuevo."
+              message: "'%{value}' coincide con un %{existing_model} existente, pero el modelo de esta fila es %{model}, por lo que la importación no lo actualizará."
+              suggestion: "Cambie el modelo de esta fila a %{existing_model} o use un valor de %{field} que ningún otro registro tenga."
           existing_source_identifier_validator:
             warnings:
               message: "'%{value}' coincide con un registro existente en el repositorio — esta fila lo actualizará."

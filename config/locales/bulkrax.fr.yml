@@ -351,6 +351,15 @@ fr:
             errors:
               message: "%{field} en double « %{value} » — apparaît également à la ligne %{original_row}."
               suggestion: "Chaque %{field} doit être unique dans le CSV."
+          existing_record_id_not_found_validator:
+            errors:
+              message: "Aucun enregistrement existant n'a « %{value} » comme %{field} ; cette ligne ne peut donc en mettre aucun à jour."
+              suggestion: "Corrigez la valeur de %{field} ou laissez-la vide pour créer un nouvel enregistrement."
+          existing_record_model_mismatch_validator:
+            errors:
+              id_suggestion: "Changez le modèle de cette ligne en %{existing_model}, ou laissez la valeur de %{field} vide pour créer un nouvel enregistrement."
+              message: "« %{value} » correspond à un %{existing_model} existant, mais le modèle de cette ligne est %{model} ; l'importation ne le mettra donc pas à jour."
+              suggestion: "Changez le modèle de cette ligne en %{existing_model}, ou utilisez une valeur de %{field} qu'aucun autre enregistrement n'a."
           existing_source_identifier_validator:
             warnings:
               message: "« %{value} » correspond à un enregistrement existant dans le dépôt — cette ligne le mettra à jour."

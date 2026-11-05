@@ -351,6 +351,15 @@ zh:
             errors:
               message: "重复的 %{field} '%{value}' — 也出现在第 %{original_row} 行。"
               suggestion: "每个 %{field} 在 CSV 中必须是唯一的。"
+          existing_record_id_not_found_validator:
+            errors:
+              message: "没有现有记录的 %{field} 为 '%{value}'，因此此行无法更新任何记录。"
+              suggestion: "请更正 %{field} 的值，或将其留空以创建新记录。"
+          existing_record_model_mismatch_validator:
+            errors:
+              id_suggestion: "请将此行的模型改为 %{existing_model}，或将 %{field} 留空以创建新记录。"
+              message: "'%{value}' 与现有的 %{existing_model} 匹配，但此行的模型是 %{model}，因此导入不会更新它。"
+              suggestion: "请将此行的模型改为 %{existing_model}，或为 %{field} 使用其他记录都没有的值。"
           existing_source_identifier_validator:
             warnings:
               message: "'%{value}' 与仓库中的现有记录匹配 — 此行将更新该记录。"
