@@ -94,5 +94,62 @@ module Bulkrax
         end
       end
     end
+
+    describe 'relating and visibility' do
+      subject(:entry) do
+        described_class.create!(identifier: 'file_set_entry', importerexporter: importer, parsed_metadata: { 'parents' => parents })
+      end
+
+      let(:importer) { FactoryBot.create(:bulkrax_importer_csv_complex) }
+      let(:parents) { ['work_entry', 'other_work_entry'] }
+      let(:relationships) { PendingRelationship.where(child_id: 'file_set_entry') }
+
+      before { FactoryBot.create(:bulkrax_importer_run, importer: importer) }
+
+      context 'with the ActiveFedora object factory, which attaches the file set itself' do
+        it 'records no pending relationship' do
+          expect(entry.parent_jobs).to be false
+          expect(relationships).to be_empty
+        end
+
+        it "gives a file set without a visibility the importer's" do
+          entry.parsed_metadata['visibility'] = ''
+          entry.add_visibility
+
+          expect(entry.parsed_metadata['visibility']).to eq importer.visibility
+        end
+      end
+
+      context 'with the Valkyrie object factory, which leaves the file set for CreateRelationshipsJob' do
+        before { allow(Bulkrax).to receive(:object_factory).and_return(ValkyrieObjectFactory) }
+
+        it 'records a pending relationship to the first parent only, the one the file set is created for' do
+          entry.parent_jobs
+
+          expect(relationships.pluck(:parent_id, :importer_run_id)).to eq [['work_entry', importer.last_run.id]]
+        end
+
+        it 'records none to a parent the import deletes' do
+          entry.define_singleton_method(:deleted_identifier?) { |identifier| identifier == 'work_entry' }
+          entry.parent_jobs
+
+          expect(relationships).to be_empty
+        end
+
+        it "leaves a blank visibility blank, so the file set takes its work's" do
+          entry.parsed_metadata['visibility'] = ''
+          entry.add_visibility
+
+          expect(entry.parsed_metadata).not_to have_key('visibility')
+        end
+
+        it "keeps the row's visibility" do
+          entry.parsed_metadata['visibility'] = 'restricted'
+          entry.add_visibility
+
+          expect(entry.parsed_metadata['visibility']).to eq 'restricted'
+        end
+      end
+    end
   end
 end

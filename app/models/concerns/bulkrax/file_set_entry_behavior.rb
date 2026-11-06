@@ -51,12 +51,33 @@ module Bulkrax
       raise OrphanFileSetError, 'File set must be related to at least one work'
     end
 
+    # ObjectFactory#create_file_set attaches the file set to its parent. ValkyrieObjectFactory
+    # leaves that to CreateRelationshipsJob, and only for the first parent, the one it reads.
     def parent_jobs
-      false # FileSet relationships are handled in ObjectFactory#create_file_set
+      return false unless valkyrie_object_factory?
+
+      parent_identifier = Array(parsed_metadata[related_parents_parsed_mapping]).first
+      # try: ImportBehavior#deleted_identifier? arrives with samvera/bulkrax#1279
+      return if parent_identifier.blank? || try(:deleted_identifier?, parent_identifier)
+
+      PendingRelationship.create!(child_id: identifier, parent_id: parent_identifier, importer_run_id: importerexporter.last_run.id, order: id)
+    end
+
+    # ValkyrieObjectFactory gives a file set without a visibility its parent's
+    def add_visibility
+      return super unless valkyrie_object_factory?
+
+      parsed_metadata.delete('visibility') if parsed_metadata['visibility'].blank?
     end
 
     def child_jobs
       raise ::StandardError, "A #{Bulkrax.file_model_class} cannot be a parent of a #{Bulkrax.collection_model_class}, Work, or other #{Bulkrax.file_model_class}"
+    end
+
+    private
+
+    def valkyrie_object_factory?
+      Bulkrax.object_factory <= ValkyrieObjectFactory
     end
   end
 end

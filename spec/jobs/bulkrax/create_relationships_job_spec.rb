@@ -486,5 +486,268 @@ module Bulkrax
         end
       end
     end
+
+    describe 'when finishing a pass on a work fails' do
+      let(:run) { importer.current_run }
+      let(:updated_parent) { work1 }
+      let!(:relationship) { create(:pending_relationship, importer_run_id: run.id, parent_id: work1_entry.identifier, child_id: work2_entry.identifier) }
+
+      subject(:perform) { create_relationships_job.perform(parent_identifier: work1_entry.identifier, importer_run_id: run.id) }
+
+      before do
+        allow(create_relationships_job).to receive(:find_record).with(work1_entry.identifier, run.id).and_return([work1_entry, work1])
+        allow(create_relationships_job).to receive(:find_record).with(work2_entry.identifier, run.id).and_return([work2_entry, work2])
+        allow(Bulkrax.object_factory).to receive(:update_index).and_raise('index down')
+      end
+
+      it 'records the error, keeps the relationship and reschedules the pass' do
+        expect(perform.map(&:message)).to include('index down')
+        expect(PendingRelationship.exists?(relationship.id)).to be true
+        expect(create_relationships_job).to have_received(:reschedule).with(hash_including(failure_count: 1))
+      end
+
+      it 'marks the relationship with the error, so a stalled ScheduleRelationshipsJob leaves it to the reschedule' do
+        perform
+
+        expect(relationship.reload.status_message).to eq 'index down'
+        expect(PendingRelationship.pending).not_to include(relationship)
+      end
+
+      it 'counts the relationship as failed while it waits, and the importer as complete once the reschedule links it' do
+        importer.set_status_info('Complete', run)
+
+        perform
+        expect(run.reload.failed_relationships).to eq 1
+        expect(Importer.find(importer.id).status).to eq 'Complete (with failures)'
+
+        allow(Bulkrax.object_factory).to receive(:update_index).and_return(true)
+        retry_job = described_class.new
+        allow(retry_job).to receive(:find_record).with(work1_entry.identifier, run.id).and_return([work1_entry, work1])
+        allow(retry_job).to receive(:find_record).with(work2_entry.identifier, run.id).and_return([work2_entry, work2])
+        retry_job.perform(parent_identifier: work1_entry.identifier, importer_run_id: run.id, failure_count: 1)
+
+        expect(run.reload.failed_relationships).to eq 0
+        expect(Importer.find(importer.id).status).to eq 'Complete'
+      end
+
+      it 'relates the child on the rescheduled pass' do
+        perform
+        allow(Bulkrax.object_factory).to receive(:update_index).and_return(true)
+        retry_job = described_class.new
+        allow(retry_job).to receive(:find_record).with(work1_entry.identifier, run.id).and_return([work1_entry, work1])
+        allow(retry_job).to receive(:find_record).with(work2_entry.identifier, run.id).and_return([work2_entry, work2])
+        allow(retry_job).to receive(:reschedule)
+
+        retry_job.perform(parent_identifier: work1_entry.identifier, importer_run_id: run.id, failure_count: 1)
+
+        expect(retry_job).not_to have_received(:reschedule)
+        expect(PendingRelationship.exists?(relationship.id)).to be false
+      end
+
+      it "destroys the relationships while it holds the work's lock, so another pass cannot finish them too" do
+        allow(Bulkrax.object_factory).to receive(:update_index).and_return(true)
+        locked = false
+        allow(create_relationships_job).to receive(:conditionally_acquire_lock_for).and_wrap_original do |method, *args, &block|
+          locked = true
+          method.call(*args, &block).tap { locked = false }
+        end
+        destroyed_while_locked = []
+        allow_any_instance_of(PendingRelationship).to receive(:destroy).and_wrap_original do |method|
+          destroyed_while_locked << locked
+          method.call
+        end
+
+        perform
+
+        expect(destroyed_while_locked).to eq [true]
+      end
+    end
+
+    describe 'attaching file sets the Valkyrie object factory created unattached' do
+      include_context 'with the Valkyrie memory adapter'
+
+      let(:run) { importer.current_run }
+      let(:fixture_path) { Bulkrax::Engine.root.join('spec', 'fixtures', 'removed.png').to_s }
+      let(:work) { Hyrax.persister.save(resource: WorkResource.new(title: ['parent'])) }
+      let(:titles) { %w[first second third] }
+      let(:file_sets) { titles.index_with { |title| Hyrax.persister.save(resource: Hyrax::FileSet.new(title: [title])) } }
+      let!(:uploads) do
+        file_sets.transform_values do |file_set|
+          Hyrax::UploadedFile.create!(file: File.open(fixture_path), user: run.user, file_set_uri: file_set.id.to_s)
+        end
+      end
+
+      subject(:perform) { create_relationships_job.perform(parent_identifier: work.id.to_s, importer_run_id: run.id) }
+
+      def relate(title, order: titles.index(title))
+        create(:pending_relationship, importer_run_id: run.id, parent_id: work.id.to_s, child_id: title, order: order)
+      end
+
+      def members
+        Hyrax.query_service.find_members(resource: Hyrax.query_service.find_by(id: work.id)).map { |member| member.title.first }
+      end
+
+      before do
+        allow(create_relationships_job).to receive(:find_record).and_call_original
+        file_sets.each do |title, file_set|
+          allow(create_relationships_job).to receive(:find_record).with(title, run.id) { [nil, Hyrax.query_service.find_by(id: file_set.id)] }
+        end
+        allow(ValkyrieIngestJob).to receive(:perform_later).and_return(true)
+      end
+
+      it 'adds every file set in one pass, and queues each ingest once the work has its thumbnail' do
+        titles.each { |title| relate(title) }
+        thumbnails_when_queued = []
+        allow(ValkyrieIngestJob).to receive(:perform_later) { thumbnails_when_queued << Hyrax.query_service.find_by(id: work.id).thumbnail_id }
+
+        perform
+
+        expect(members).to eq titles
+        expect(Hyrax.query_service.find_by(id: work.id).representative_id).to eq file_sets['first'].id
+        expect(thumbnails_when_queued).to eq [file_sets['first'].id] * 3
+      end
+
+      it 'queues one ingest when both the work row and the file set row name the relationship' do
+        2.times { relate('first') }
+
+        perform
+
+        expect(ValkyrieIngestJob).to have_received(:perform_later).with(uploads['first']).once
+      end
+
+      it 'queues the ingest of a file set a killed pass attached but never queued' do
+        Hyrax.persister.save(resource: work.tap { |w| w.member_ids = [file_sets['first'].id] })
+        relate('first')
+
+        perform
+
+        expect(members).to eq ['first']
+        expect(ValkyrieIngestJob).to have_received(:perform_later).with(uploads['first'])
+      end
+
+      it 'attaches in row order, not the order the rows finished' do
+        titles.reverse_each { |title| relate(title) }
+
+        perform
+
+        expect(members).to eq titles
+      end
+
+      it 'keeps the listed order for children named in one cell, which share an order' do
+        titles.each { |title| relate(title, order: 1) }
+
+        perform
+
+        expect(members).to eq titles
+      end
+
+      it 'deletes the relationship only after its ingest is queued' do
+        relationship = relate('first')
+        kept_when_queued = nil
+        allow(ValkyrieIngestJob).to receive(:perform_later) { kept_when_queued = PendingRelationship.exists?(relationship.id) }
+
+        perform
+
+        expect(kept_when_queued).to be true
+        expect(PendingRelationship.exists?(relationship.id)).to be false
+      end
+
+      it 'leaves the relationship for the next pass when the worker dies before queueing' do
+        relationship = relate('first')
+        allow(create_relationships_job).to receive(:finish_linked_relationships)
+
+        perform
+
+        expect(members).to eq ['first']
+        expect(PendingRelationship.exists?(relationship.id)).to be true
+      end
+
+      it 'records the error, queues nothing and keeps the relationship for the rescheduled pass when saving the work fails' do
+        relationship = relate('first')
+        allow(Bulkrax::ValkyrieObjectFactory).to receive(:save!).and_raise('save failed')
+
+        expect(perform.map(&:message)).to include('save failed')
+        expect(ValkyrieIngestJob).not_to have_received(:perform_later)
+        expect(PendingRelationship.exists?(relationship.id)).to be true
+        expect(create_relationships_job).to have_received(:reschedule).with(hash_including(parent_identifier: work.id.to_s, failure_count: 1))
+      end
+
+      it 'queues the ingest on the rescheduled pass when indexing the work failed' do
+        relationship = relate('first')
+        allow(Bulkrax::ValkyrieObjectFactory).to receive(:update_index).and_raise('index down')
+        perform
+        expect(PendingRelationship.exists?(relationship.id)).to be true
+        expect(ValkyrieIngestJob).not_to have_received(:perform_later)
+
+        allow(Bulkrax::ValkyrieObjectFactory).to receive(:update_index).and_call_original
+        retry_job = described_class.new
+        allow(retry_job).to receive(:find_record).and_call_original
+        allow(retry_job).to receive(:find_record).with('first', run.id) { [nil, Hyrax.query_service.find_by(id: file_sets['first'].id)] }
+        retry_job.perform(parent_identifier: work.id.to_s, importer_run_id: run.id, failure_count: 1)
+
+        expect(members).to eq ['first']
+        expect(PendingRelationship.exists?(relationship.id)).to be false
+        expect(ValkyrieIngestJob).to have_received(:perform_later).with(uploads['first']).once
+      end
+
+      it 'reschedules the pass when the lock on the work cannot be acquired' do
+        relationship = relate('first')
+        allow(create_relationships_job).to receive(:conditionally_acquire_lock_for).and_raise('lock unavailable')
+
+        expect(perform.map(&:message)).to include('lock unavailable')
+        expect(PendingRelationship.exists?(relationship.id)).to be true
+        expect(create_relationships_job).to have_received(:reschedule).with(hash_including(failure_count: 1))
+      end
+
+      it 'records the error and keeps the relationship when the ingest is refused without raising' do
+        relationship = relate('first')
+        allow(ValkyrieIngestJob).to receive(:perform_later).and_return(false)
+
+        expect(perform.map(&:message).join).to match(/Could not queue the ingest/)
+        expect(PendingRelationship.exists?(relationship.id)).to be true
+        expect(create_relationships_job).to have_received(:reschedule).with(hash_including(failure_count: 1))
+      end
+
+      it 'keeps the relationships it had not queued when queueing fails' do
+        first = relate('first')
+        second = relate('second')
+        allow(ValkyrieIngestJob).to receive(:perform_later).with(uploads['second']).and_raise('queue down')
+
+        expect(perform.map(&:message)).to include('queue down')
+        expect(PendingRelationship.where(id: [first.id, second.id]).pluck(:id)).to eq [second.id]
+      end
+
+      it 'queues the ingest of the file sets it added when a later one fails' do
+        relate('first')
+        create(:pending_relationship, importer_run_id: run.id, parent_id: work.id.to_s, child_id: 'missing', order: 5)
+        allow(create_relationships_job).to receive(:find_record).with('missing', run.id).and_return([nil, nil])
+
+        perform
+
+        expect(ValkyrieIngestJob).to have_received(:perform_later).with(uploads['first'])
+      end
+
+      it 'relates file sets that rows created at once' do
+        factories = titles.map do |title|
+          Bulkrax::ValkyrieObjectFactory.new(attributes: { 'title' => [title], 'parents' => [work.id.to_s], 'file' => [fixture_path] },
+                                             source_identifier_value: title, work_identifier: :bulkrax_identifier,
+                                             work_identifier_search_field: 'bulkrax_identifier_tesim', related_parents_parsed_mapping: 'parents',
+                                             user: run.user, klass: Hyrax::FileSet).tap do |factory|
+            allow(factory).to receive(:find_record) { [nil, Hyrax.query_service.find_by(id: work.id)] }
+          end
+        end
+        new_uploads = Array.new(titles.size) { Hyrax::UploadedFile.create!(file: File.open(fixture_path), user: run.user) }
+        created = factories.zip(new_uploads).map { |factory, upload| Thread.new { factory.send(:create_file_set, uploaded_files: [upload.id]) } }.map(&:value)
+        expect(Hyrax.query_service.find_by(id: work.id).member_ids).to be_empty
+
+        titles.zip(created).each do |title, file_set|
+          allow(create_relationships_job).to receive(:find_record).with(title, run.id) { [nil, Hyrax.query_service.find_by(id: file_set.id)] }
+          relate(title)
+        end
+        perform
+
+        expect(Hyrax.query_service.find_by(id: work.id).member_ids).to eq created.map(&:id)
+      end
+    end
   end
 end
