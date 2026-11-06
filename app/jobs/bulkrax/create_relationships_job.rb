@@ -203,7 +203,13 @@ module Bulkrax
           Bulkrax.object_factory.update_index(resources: [reloaded_parent])
           Bulkrax.object_factory.publish(event: 'object.membership.updated', object: reloaded_parent, user: @user)
         end
+        # Only once the work is saved: if that fails, the relationships stay for the retry.
+        # Under the lock, so another pass for the work cannot finish the same ones.
+        linked_relationships.each(&:destroy)
       end
+    rescue => e
+      # Recorded rather than raised, so #perform reschedules the pass whatever the queue adapter's retry policy
+      record_pass_failure(parent_identifier, e)
     end
     # rubocop:enable Layout/RescueEnsureAlignment
 
@@ -248,9 +254,24 @@ module Bulkrax
       )
       # default is false for this... do not typically need to index file sets of child records
       Bulkrax.object_factory.update_index_for_file_sets_of(resource: child_record) if update_child_records_works_file_sets?
-      relationship.destroy
+      linked_relationships << relationship
 
       updated_parent
+    end
+
+    def linked_relationships
+      @linked_relationships ||= []
+    end
+
+    def record_pass_failure(parent_identifier, error)
+      @number_of_failures += 1
+      @errors << error
+      # No longer Pending, so a stalled ScheduleRelationshipsJob leaves them to this job's
+      # reschedule rather than retrying them hourly, which looks like progress and never gives up
+      relationships = Bulkrax::PendingRelationship.where(parent_id: parent_identifier, importer_run_id: @importer_run_id)
+      relationships.pending.update_all(status_message: error.message.truncate(STATUS_MESSAGE_LIMIT)) # rubocop:disable Rails/SkipsModelValidations
+      # Counted, so the pass that links them recounts and sets the importer's status back
+      record_relationship_failures
     end
 
     def child_not_found(relationship)
