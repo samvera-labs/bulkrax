@@ -177,8 +177,9 @@ module Bulkrax
     def process_parent_as_work(parent_record:, parent_identifier:)
       conditionally_acquire_lock_for(parent_record.id.to_s) do
         ActiveRecord::Base.uncached do
+          # find_each would ignore the order; id breaks ties among children named in one cell
           Bulkrax::PendingRelationship.where(parent_id: parent_identifier, importer_run_id: @importer_run_id)
-                                      .ordered.find_each do |rel|
+                                      .ordered.order(:id).each do |rel|
             raise "#{rel} needs a child to create relationship" if rel.child_id.nil?
             raise "#{rel} needs a parent to create relationship" if rel.parent_id.nil?
             # depending on the object factory, we may not save the actual parent record, so we update it here

@@ -486,5 +486,47 @@ module Bulkrax
         end
       end
     end
+
+    describe 'attaching file sets the Valkyrie object factory created unattached' do
+      include_context 'with the Valkyrie memory adapter'
+
+      let(:run) { importer.current_run }
+      let(:work) { Hyrax.persister.save(resource: WorkResource.new(title: ['parent'])) }
+      let(:titles) { %w[first second third] }
+      let(:file_sets) { titles.index_with { |title| Hyrax.persister.save(resource: Hyrax::FileSet.new(title: [title])) } }
+
+      subject(:perform) { create_relationships_job.perform(parent_identifier: work.id.to_s, importer_run_id: run.id) }
+
+      def relate(title, order: titles.index(title))
+        create(:pending_relationship, importer_run_id: run.id, parent_id: work.id.to_s, child_id: title, order: order)
+      end
+
+      def members
+        Hyrax.query_service.find_members(resource: Hyrax.query_service.find_by(id: work.id)).map { |member| member.title.first }
+      end
+
+      before do
+        allow(create_relationships_job).to receive(:find_record).and_call_original
+        file_sets.each do |title, file_set|
+          allow(create_relationships_job).to receive(:find_record).with(title, run.id) { [nil, Hyrax.query_service.find_by(id: file_set.id)] }
+        end
+      end
+
+      it 'attaches in row order, not the order the rows finished' do
+        titles.reverse_each { |title| relate(title) }
+
+        perform
+
+        expect(members).to eq titles
+      end
+
+      it 'keeps the listed order for children named in one cell, which share an order' do
+        titles.each { |title| relate(title, order: 1) }
+
+        perform
+
+        expect(members).to eq titles
+      end
+    end
   end
 end
