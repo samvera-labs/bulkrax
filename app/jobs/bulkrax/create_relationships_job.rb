@@ -205,7 +205,7 @@ module Bulkrax
         end
         # Only once the work is saved: if that fails, the relationships stay for the retry.
         # Under the lock, so another pass for the work cannot finish the same ones.
-        linked_relationships.each(&:destroy)
+        finish_linked_relationships
       end
     rescue => e
       # Recorded rather than raised, so #perform reschedules the pass whatever the queue adapter's retry policy
@@ -254,7 +254,7 @@ module Bulkrax
       )
       # default is false for this... do not typically need to index file sets of child records
       Bulkrax.object_factory.update_index_for_file_sets_of(resource: child_record) if update_child_records_works_file_sets?
-      linked_relationships << relationship
+      linked_relationships << [relationship, Bulkrax.object_factory.uploads_awaiting_ingest(resource: child_record)]
 
       updated_parent
     end
@@ -272,6 +272,15 @@ module Bulkrax
       relationships.pending.update_all(status_message: error.message.truncate(STATUS_MESSAGE_LIMIT)) # rubocop:disable Rails/SkipsModelValidations
       # Counted, so the pass that links them recounts and sets the importer's status back
       record_relationship_failures
+    end
+
+    # Ingest runs with the file set in its saved work, never mid-pass
+    def finish_linked_relationships
+      queued = Set.new
+      linked_relationships.each do |relationship, uploads|
+        uploads.each { |upload| Bulkrax.object_factory.ingest_later(upload: upload) if queued.add?(upload.id) }
+        relationship.destroy
+      end
     end
 
     def child_not_found(relationship)
